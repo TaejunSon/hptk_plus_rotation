@@ -1,0 +1,1 @@
+C:\Users\master\hptk_expsetting\hptk_plus_rotation\Library\Bee\Android\Prj\IL2CPP\Gradle\unityLibrary\build\intermediates\cxx\RelWithDebInfo\66ii472n\obj\arm64-v8a

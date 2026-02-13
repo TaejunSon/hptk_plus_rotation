@@ -11,9 +11,12 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/HPTK/Integrations/UnityXR/Scenes/Demo.UnityXR.unity
     guid: ac3bd99f45d00a346ac394fb1f40afb5
-  - enabled: 1
+  - enabled: 0
     path: Assets/HPTK/Integrations/Oculus/Scenes/Demo.AB.Oculus.unity
     guid: c1a5c09701b77a644a6e3c1177717a36
+  - enabled: 1
+    path: Assets/Scenes/Demo.AB.Oculus.unity
+    guid: abd32658d5e3c154eb58642b2232ddc4
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: 4fcefa720e5299747aaeb244d007a522, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

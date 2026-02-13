@@ -1,0 +1,773 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using TMPro;
+
+public class RotationInteractor : MonoBehaviour
+{
+    [SerializeField]
+    private bool _isComponentsVisible = true;
+    [SerializeField]
+    private bool _isShearFactorOn = true;
+    private OVRSkeleton _ovrSkeleton;
+    private OVRHand _ovrHand;
+    private OVRBone _indexTipBone, _middleTipBone, _thumbTipBone, _thumbMetacarpal, _wristBone;
+    private OVRBone _indexMetacarpal, _indexProximal, _indexMiddle, _indexDistal;
+    private OVRBone _middleMetacarpal, _middleProximal, _middleMiddle, _middleDistal;
+    private OVRBone _thumbProximal, _thumbDistal;
+
+    private GameObject _cube;
+
+    private List<GameObject> _spheres = new List<GameObject>();
+    private GameObject _thumbSphere, _indexSphere, _middleSphere;
+    private float _sphereScale = 0.01f;
+    private float _areaThreshold = 0.0001f, _magThreshold = 0.00001f, _dotThreshold = 0.999f;
+    private float _thumbAngleThreshold = 0.01f, _triAngleThreshold = 10f;
+
+    private LineRenderer _lineRenderer;
+
+    private bool _isGrabbed = false, _isClutching = false, _isReset = false, _isOnTarget = false;
+    private bool _pinched = false;
+    private int _scaleMode = 0; // 0: angle-based, 1: cmc-based
+    private int _transferFunction = 0; // 0: Baseline, 1: linear, 2: accelerating(power), 3: decelerating(hyperbolic tangent)
+    private float _powFactorA = 1.910f, _tanhFactorA = 0.547f;
+    private double _powFactorB = 2d, _tanhFactorB = 3.657d;
+    private float _angleScaleFactor = 0.5f;
+    private const float MIN_SCALE_FACTOR = 0.25f, MAX_SCALE_FACTOR = 2f, MIN_FLOAT = 1e-4f;
+    private const float MIN_TRIANGLE_AREA = 0.5f, MAX_TRIANGLE_AREA = 7f; // area is in cm2
+    private const float MIN_TRAVEL_DISTANCE = 3f, MAX_TRAVEL_DISTANCE = 10f;// distance is in cm
+    private const float MAX_CURL = 180f, MAX_THUMB_CURL = 90f;
+    private const float MIN_FINGER_DISTANCE = 1.5f;
+    private const float MIN_THUMB_ANGLE = 25f, MAX_THUMB_ANGLE = 60f;
+    private Dictionary<KeyCode, Action> _keyActions;
+
+    private Quaternion _origThumbRotation, _origScaledThumbRotation;
+    private Quaternion _worldWristRotation, _deltaThumbRotation, _scaledDeltaRotation;
+    private Vector3 _scaledWorldThumbTipPosition, _scaledThumbTipPosition;
+    private Quaternion _cubeRotation, _prevCubeRotation;
+    private Quaternion _prevTriangleRotation, _triangleRotation;
+    private float _thumbWeight, _triangleArea, _triangleP1Angle, _deltaTriangleP1Angle, _prevAngle;
+    private Vector3 _grabOffsetPosition, _centroidPosition;
+    private Quaternion _grabOffsetRotation;
+    Vector3 _triangleForward, _triangleUp;
+    Vector3 _origThumbPosition, _origIndexPosition, _origMiddlePosition;
+
+    private Outline _outline;
+    private const float OUTLINE_WIDTH_DEFAULT = 10f, OUTLINE_WIDTH_CLUTCHING = 3f;
+
+    [SerializeField]
+    private TextMeshProUGUI _textbox;
+    // private string[] _transferText = { "linear", "power", "tanh" };
+    private string[] _transferText = { "O", "A", "B", "C" };
+
+    private string _tempstr = "";
+
+    private bool _isCentroidCentered = false;
+    private GameObject _centroidSphere;
+
+    public event Action OnClutchStart, OnClutchEnd;
+
+    void Awake()
+    {
+        _lineRenderer = GetComponent<LineRenderer>();
+        _lineRenderer.positionCount = 4;
+
+        if (!_isComponentsVisible)
+        {
+            _lineRenderer.enabled = false;
+        }
+    }
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            GameObject sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            sphere.transform.localScale = new Vector3(_sphereScale, _sphereScale, _sphereScale);
+            if (!_isComponentsVisible)
+            {
+                sphere.GetComponent<Renderer>().enabled = false;
+            }
+            sphere.GetComponent<Collider>().isTrigger = true;
+            sphere.tag = "TipSphere";
+            _spheres.Add(sphere);
+        }
+
+        if (_isCentroidCentered)
+        {
+            _centroidSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _centroidSphere.transform.localScale = new Vector3(0.005f, 0.005f, 0.005f);
+            if (!_isComponentsVisible)
+            {
+                _centroidSphere.GetComponent<Renderer>().enabled = false;
+            }
+        }
+
+        _thumbSphere = _spheres[0];
+        _indexSphere = _spheres[1];
+        _middleSphere = _spheres[2];
+
+        InitGeometry();
+
+        _keyActions = new Dictionary<KeyCode, Action>
+        {
+            {KeyCode.KeypadEnter, () => _cube.transform.rotation = _wristBone.Transform.rotation},
+            {KeyCode.KeypadMinus, () => ToggleComponentsVisibility(false)},
+            {KeyCode.KeypadPlus, () => ToggleComponentsVisibility(true)},
+            {KeyCode.Keypad0, () => _transferFunction = 0},
+            {KeyCode.Keypad1, () => _transferFunction = 1},
+            {KeyCode.Keypad2, () => _transferFunction = 2},
+            {KeyCode.Keypad3, () => _transferFunction = 3},
+            {KeyCode.Keypad5, () => _isCentroidCentered = true},
+            {KeyCode.Keypad6, () => _isCentroidCentered = false},
+            {KeyCode.Keypad7, () => _scaleMode = 0},
+            {KeyCode.Keypad8, () => _scaleMode = 1}
+        };
+
+        _cube.GetComponentInChildren<DieGrabHandler>().SetRotationInteractor(this);
+        _cube.GetComponentInChildren<DieReleaseHandler>().SetRotationInteractor(this);
+        _outline = _cube.GetComponentInChildren<Outline>();
+        _outline.OutlineColor = Color.blue;
+        _outline.enabled = false;
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        foreach (var entry in _keyActions) if (Input.GetKey(entry.Key)) entry.Value.Invoke();
+
+        // _textbox.text = _transferText[_transferFunction];
+
+        // transforms are on the local coordinates based on the wrist if not stated otherwise
+        _worldWristRotation = _wristBone.Transform.rotation;
+
+        if (_scaleMode == 1) _scaledThumbTipPosition = TransferBoneMovement();
+        else _scaledThumbTipPosition = _wristBone.Transform.InverseTransformPoint(_thumbTipBone.Transform.position);
+
+        Vector3 indexTipPosition = _wristBone.Transform.InverseTransformPoint(_indexTipBone.Transform.position);
+        Vector3 middleTipPosition = _wristBone.Transform.InverseTransformPoint(_middleTipBone.Transform.position);
+        _scaledWorldThumbTipPosition = _wristBone.Transform.TransformPoint(_scaledThumbTipPosition);
+
+        // _thumbSphere.transform.position = worldThumbPosition;
+        // _thumbSphere.transform.position = _thumbTipBone.Transform.position;
+        _thumbSphere.transform.position = _scaledWorldThumbTipPosition;
+        _indexSphere.transform.position = _indexTipBone.Transform.position;
+        _middleSphere.transform.position = _middleTipBone.Transform.position;
+
+        _lineRenderer.SetPosition(0, _scaledWorldThumbTipPosition);
+        _lineRenderer.SetPosition(1, _indexTipBone.Transform.position);
+        _lineRenderer.SetPosition(2, _middleTipBone.Transform.position);
+        _lineRenderer.SetPosition(3, _scaledWorldThumbTipPosition);
+
+        bool isAngleValid = CalculateAngleAtVertex(_scaledThumbTipPosition, indexTipPosition, middleTipPosition, out _triangleP1Angle);
+        bool isTriangleValid = CalculateTriangleOrientation(_scaledThumbTipPosition, indexTipPosition, middleTipPosition, out _triangleRotation);
+        bool isTriangleAreaValid = CalculateTriangleArea(_scaledThumbTipPosition, indexTipPosition, middleTipPosition, out float _triangleArea);
+        // position cube with bones since spheres are modified. use world coordinates here.
+        _centroidPosition = GetWeightedTriangleCentroid(_thumbTipBone.Transform.position, _indexTipBone.Transform.position, _middleTipBone.Transform.position);
+        // _centroidPosition = GetWeightedTriangleCentroid(_scaledWorldThumbTipPosition, _indexTipBone.Transform.position, _middleTipBone.Transform.position);
+        CalculateFingerDistance(out float indexDistance, out float middleDistance);
+        float distance = GetFingerTravelDistance();
+        if (isTriangleAreaValid) _angleScaleFactor = GetHarmonicMean(GetScaleFactorFromArea(_triangleArea), GetScaleFactorFromFingers(distance));
+
+        // check clutching
+        if (GetIndexFingerCurl() > MAX_CURL) { _pinched = true; _tempstr += "index curl, "; }
+        if (GetMiddleFingerCurl() > MAX_CURL) { _pinched = true; _tempstr += "middle curl, "; }
+        if (GetThumbCurl() > MAX_THUMB_CURL) { _pinched = true; _tempstr += "thumb curl, "; }
+        if (_triangleArea < MIN_TRIANGLE_AREA) { _pinched = true; _tempstr += "area, "; }
+        if ((indexDistance < MIN_FINGER_DISTANCE) && (middleDistance < MIN_FINGER_DISTANCE)) { _pinched = true; _tempstr += "distance, "; }
+        if (GetThumbAngle() < MIN_THUMB_ANGLE) { _pinched = true; _tempstr += "thumb angle small, "; }
+        if (GetThumbAngle() > MAX_THUMB_ANGLE) { _pinched = true; _tempstr += "thumb angle large, "; }
+
+        // _textbox.text = $"{_angleScaleFactor}";
+        // _textbox.text = $"{_ovrHand.GetFingerPinchStrength(OVRHand.HandFinger.Middle)}";
+        // _textbox.text = $"{GetIndexFingerCurl().ToString("0.00")}, {GetMiddleFingerCurl().ToString("0.00")}";
+        // _textbox.text = $"triangle area: {_triangleArea.ToString("0.00")}" + Environment.NewLine
+        //                 + $"scale factor: {_angleScaleFactor.ToString("0.00")}" + Environment.NewLine
+        //                 // + $"pinch strength: {_ovrHand.GetFingerPinchStrength(OVRHand.HandFinger.Index).ToString("0.00")},{_ovrHand.GetFingerPinchStrength(OVRHand.HandFinger.Middle).ToString("0.00")}" + Environment.NewLine
+        //                 + $"curl: {GetIndexFingerCurl().ToString("0.00")}, {GetMiddleFingerCurl().ToString("0.00")}" + Environment.NewLine
+        //                 + $"curl: {GetThumbCurl().ToString("0.00")}" + Environment.NewLine
+        //                 + $"distance: {indexDistance.ToString("0.00")}, {middleDistance.ToString("0.00")}" + Environment.NewLine
+        //                 + $"thumb: {GetThumbAngle().ToString("0.00")}";
+        // _textbox.text = $"{distance.ToString("0.00")}" + Environment.NewLine + $"{_angleScaleFactor.ToString("0.00")}";
+        _textbox.text = "";
+
+        if (_transferFunction == 0) _isClutching = false;
+        else
+        {
+            if (_pinched && _isClutching) OnClutchEnd?.Invoke();
+            if (!_pinched && !_isClutching) OnClutchStart?.Invoke();
+        }
+
+        if (_isCentroidCentered) _centroidSphere.transform.position = _centroidPosition;
+
+        if (_isGrabbed)
+        {
+            if (_isClutching) //  && !_pinched)
+            {
+                if (_isReset)
+                {
+                    if (isAngleValid && isTriangleValid && isTriangleAreaValid)
+                    {
+                        _deltaTriangleP1Angle = _triangleP1Angle - _prevAngle;
+                        Vector3 triangleAxis = _triangleRotation * Vector3.up;
+                        Quaternion deltaShearRotation, deltaTriangleRotation, deltaTotalRotation;
+                        if (_isShearFactorOn) deltaShearRotation = Quaternion.AngleAxis(_deltaTriangleP1Angle, triangleAxis);
+                        else deltaShearRotation = Quaternion.identity;
+                        deltaTriangleRotation = _triangleRotation * Quaternion.Inverse(_prevTriangleRotation);
+                        // deltaTriangleRotation.ToAngleAxis(out float deltaAngle, out Vector3 deltaAxis);
+                        deltaTotalRotation = deltaShearRotation * deltaTriangleRotation;
+                        deltaTotalRotation.ToAngleAxis(out float deltaAngle, out Vector3 deltaAxis);
+                        if (deltaAngle < _triAngleThreshold)
+                        {
+                            if (_scaleMode == 0) deltaTotalRotation = Quaternion.AngleAxis(deltaAngle * _angleScaleFactor, deltaAxis);
+                            // _cubeRotation = deltaShearRotation * deltaTriangleRotation * _prevCubeRotation;
+                            _cubeRotation = deltaTotalRotation * _prevCubeRotation;
+                            _cube.transform.rotation = _worldWristRotation * _cubeRotation * _grabOffsetRotation;
+                        }
+                        _prevCubeRotation = _cubeRotation;
+                    }
+                }
+                else _isReset = true;
+            }
+            else
+            {
+                _cubeRotation = _prevCubeRotation;
+                _cube.transform.rotation = _worldWristRotation * _cubeRotation * _grabOffsetRotation;
+            }
+            if (_isCentroidCentered) _cube.transform.position = _worldWristRotation * _cubeRotation * Quaternion.Inverse(_worldWristRotation) * _grabOffsetPosition + _centroidPosition;
+            else _cube.transform.position = _grabOffsetPosition + _centroidPosition;
+        }
+
+        if (isAngleValid && isTriangleValid && isTriangleAreaValid)
+        {
+            _prevAngle = _triangleP1Angle;
+            _prevTriangleRotation = _triangleRotation;
+        }
+    }
+
+    public void Reset()
+    {
+        OffTarget();
+        EndClutching();
+        OnRelease();
+        InitGeometry();
+    }
+
+    private void ResetThumbOrigin()
+    {
+        _origThumbRotation = Quaternion.Inverse(_worldWristRotation) * _thumbMetacarpal.Transform.rotation;
+        _origScaledThumbRotation = _origThumbRotation;
+    }
+
+    private void ResetFingersOrigin()
+    {
+        _origThumbPosition = _wristBone.Transform.InverseTransformPoint(_thumbTipBone.Transform.position);
+        _origIndexPosition = _wristBone.Transform.InverseTransformPoint(_indexTipBone.Transform.position);
+        _origMiddlePosition = _wristBone.Transform.InverseTransformPoint(_middleTipBone.Transform.position);
+    }
+
+    private void ResetGrabOffset()
+    {
+        _grabOffsetPosition = _cube.transform.position - _centroidPosition;
+        _grabOffsetRotation = Quaternion.Inverse(_wristBone.Transform.rotation) * _cube.transform.rotation;
+        _prevCubeRotation = Quaternion.identity;
+    }
+
+    private void InitGeometry()
+    {
+        _indexTipBone = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_IndexTip);
+        _indexMetacarpal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Index1);
+        _indexProximal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Index2);
+        _indexMiddle = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Index3);
+        _indexDistal = _indexMiddle; 
+
+        _middleTipBone = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_MiddleTip);
+        _middleMetacarpal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Middle1);
+        _middleProximal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Middle2);
+        _middleMiddle = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Middle3);
+        _middleDistal = _middleMiddle;
+
+        _thumbTipBone = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_ThumbTip);
+        _thumbMetacarpal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Thumb1);
+        _thumbProximal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Thumb2);
+        _thumbDistal = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_Thumb3);
+        _wristBone = _ovrSkeleton.Bones.FirstOrDefault(bone => bone.Id == OVRSkeleton.BoneId.Hand_WristRoot);
+
+        _thumbSphere.transform.position = _thumbTipBone.Transform.position;
+        _indexSphere.transform.position = _indexTipBone.Transform.position;
+        _middleSphere.transform.position = _middleTipBone.Transform.position;
+
+        _worldWristRotation = _wristBone.Transform.rotation;
+        ResetThumbOrigin();
+        ResetFingersOrigin();
+        _prevAngle = 0f;
+        _prevTriangleRotation = Quaternion.identity;
+        // prevCubeRotation = Quaternion.Inverse(worldWristRotation) * cube.transform.rotation;
+        _prevCubeRotation = Quaternion.identity;
+        _grabOffsetPosition = Vector3.zero;
+        _grabOffsetRotation = Quaternion.identity;
+    }
+
+    private void ToggleComponentsVisibility(bool b)
+    {
+        _isComponentsVisible = b;
+        foreach (GameObject sphere in _spheres)
+        {
+            sphere.GetComponent<Renderer>().enabled = b;
+        }
+        if (_isCentroidCentered)
+        {
+            _centroidSphere.GetComponent<Renderer>().enabled = b;
+        }
+        _lineRenderer.enabled = b;
+    }
+
+    private Vector3 TransferBoneMovement()
+    {
+        Quaternion worldThumbRotation = _thumbMetacarpal.Transform.rotation;
+
+        Vector3 thumbPosition = _wristBone.Transform.InverseTransformPoint(_thumbMetacarpal.Transform.position);
+        Vector3 thumbTipPosition = _wristBone.Transform.InverseTransformPoint(_thumbTipBone.Transform.position);
+        Quaternion thumbRotation = Quaternion.Inverse(_worldWristRotation) * worldThumbRotation;
+        _deltaThumbRotation = thumbRotation * Quaternion.Inverse(_origThumbRotation);
+        _deltaThumbRotation.ToAngleAxis(out float angle, out Vector3 axis);
+
+        if (angle < _thumbAngleThreshold) return thumbTipPosition;
+        if (_transferFunction == 0) return thumbTipPosition;
+
+        double angleRadian = angle / 180.0 * Math.PI;
+        float modifiedAngle = angle;
+
+        if (_transferFunction == 1)
+        {
+            modifiedAngle = angle;
+        }
+        else if (_transferFunction == 2)
+        {
+            modifiedAngle = _powFactorA * (float)Math.Pow(angleRadian, _powFactorB) * 180f / (float)Math.PI;
+        }
+        else if (_transferFunction == 3)
+        {
+            modifiedAngle = _tanhFactorA * (float)Math.Tanh(_tanhFactorB * angleRadian) * 180f / (float)Math.PI;
+        }
+
+        _scaledDeltaRotation = Quaternion.AngleAxis(modifiedAngle, axis);
+        Quaternion scaledThumbRotation = _scaledDeltaRotation * _origScaledThumbRotation;
+
+        Vector3 localTipPosition = _thumbMetacarpal.Transform.InverseTransformPoint(_thumbTipBone.Transform.position); // local based on thumb metacarpal
+        Vector3 scaledTipPosition = thumbPosition + scaledThumbRotation * localTipPosition;
+
+        return scaledTipPosition;
+    }
+
+    public Vector3 GetTriangleCentroid(Vector3 p1, Vector3 p2, Vector3 p3)
+    {
+        return (p1 + p2 + p3) / 3f;
+    }
+
+    public Vector3 GetWeightedTriangleCentroid(Vector3 p1, Vector3 p2, Vector3 p3)
+    {
+        if (CalculateAngleAtVertex(p1, p2, p3, out float angle))
+        {
+            _thumbWeight = GetThumbWeight(angle);
+            return (_thumbWeight * p1 + p2 + p3) / (_thumbWeight + 1f + 1f);
+        }
+        else return (p1 + p2 + p3) / 3f;
+    }
+
+    public float GetScaleFactorFromArea(float area)
+    {
+        // if (area < MIN_TRIANGLE_AREA) { _pinched = true; _outline.OutlineWidth = OUTLINE_WIDTH_CLUTCHING; return MIN_SCALE_FACTOR; }
+        if (area < MIN_TRIANGLE_AREA) return MIN_SCALE_FACTOR;
+        else if (area > MAX_TRIANGLE_AREA) return MAX_SCALE_FACTOR;
+        else return (MAX_SCALE_FACTOR - MIN_SCALE_FACTOR) / (MAX_TRIANGLE_AREA - MIN_TRIANGLE_AREA) * (area - MIN_TRIANGLE_AREA) + MIN_SCALE_FACTOR;
+    }
+
+    public float GetScaleFactorFromFingers(float distance)
+    {
+        if (distance < MIN_TRAVEL_DISTANCE) return MIN_SCALE_FACTOR;
+        else if (distance > MAX_TRAVEL_DISTANCE) return MAX_SCALE_FACTOR;
+        else return (MAX_SCALE_FACTOR - MIN_SCALE_FACTOR) / (MAX_TRAVEL_DISTANCE - MIN_TRAVEL_DISTANCE) * (distance - MIN_TRAVEL_DISTANCE) + MIN_SCALE_FACTOR;
+    }
+
+    public float GetHarmonicMean(float a, float b)
+    {
+        return 2f / (1f / a + 1f / b);
+    }
+
+    public bool CalculateTriangleArea(Vector3 p1, Vector3 p2, Vector3 p3, out float area)
+    {
+        Vector3 vectorAB = (p2 - p1) * 100f;
+        Vector3 vectorAC = (p3 - p1) * 100f;
+        Vector3 vectorBC = (p3 - p2) * 100f;
+
+        if (vectorAB.sqrMagnitude < MIN_FLOAT || vectorAC.sqrMagnitude < MIN_FLOAT
+            || vectorBC.sqrMagnitude < MIN_FLOAT)
+        {
+            area = float.NaN;
+            return false;
+        }
+        // _textbox.text = $"{vectorAB.magnitude}\n {vectorAC.magnitude}\n {vectorBC.magnitude}";
+
+        Vector3 crossProduct = Vector3.Cross(vectorAB, vectorAC);
+
+        area = crossProduct.magnitude / 2f;
+
+        // _textbox.text = $"{area}";
+
+        if (area < MIN_FLOAT)
+        {
+            area = float.NaN;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool CalculateAngleAtVertex(Vector3 vertex, Vector3 other1, Vector3 other2, out float angle)
+    {
+        Vector3 vec1 = other1 - vertex;
+        Vector3 vec2 = other2 - vertex;
+
+        if (vec1.sqrMagnitude < _magThreshold || vec2.sqrMagnitude < _magThreshold)
+        {
+            angle = float.NaN;
+            return false;
+        }
+
+        angle = Vector3.Angle(vec1, vec2);
+        return true;
+    }
+
+    private bool CalculateTriangleOrientation(Vector3 point1, Vector3 point2, Vector3 point3, out Quaternion orientation)
+    {
+        Vector3 forward = (point2 - point1).normalized;
+        Vector3 roughUp = (point3 - point1).normalized;
+        _triangleForward = forward;
+        _triangleUp = roughUp;
+
+        if (forward.magnitude < _magThreshold || roughUp.magnitude < _magThreshold || Vector3.Dot(forward, roughUp) > _dotThreshold || Vector3.Dot(forward, roughUp) < -_dotThreshold)
+        {
+            orientation = Quaternion.identity;
+            return false;
+        }
+
+        Vector3 normal = Vector3.Cross(forward, roughUp).normalized;
+
+        if (normal.magnitude < _magThreshold)
+        {
+            orientation = Quaternion.identity;
+            return false;
+        }
+
+        orientation = Quaternion.LookRotation(forward, normal);
+        return true;
+    }
+    private float GetThumbWeight(float deg)
+    {
+        if (deg < 10f) return 2f;
+        else if (deg > 90f) return 1f;
+        else return (170f - deg) / 80f;
+    }
+
+    private float GetIndexFingerCurl()
+    {
+        Vector3 metacarpalDir = (_indexProximal.Transform.position - _indexMetacarpal.Transform.position).normalized;
+        Vector3 proximalDir = (_indexMiddle.Transform.position - _indexProximal.Transform.position).normalized;
+        Vector3 middleDir = (_indexDistal.Transform.position - _indexMiddle.Transform.position).normalized;
+        Vector3 distalDir = (_indexTipBone.Transform.position - _indexDistal.Transform.position).normalized;
+
+        float proximalAngle = Vector3.Angle(metacarpalDir, proximalDir);
+        float middleAngle = Vector3.Angle(proximalDir, middleDir);
+        float distalAngle = Vector3.Angle(middleDir, distalDir);
+
+        float rawCurl = proximalAngle + middleAngle + distalAngle;
+
+        return rawCurl;
+    }
+
+    private float GetMiddleFingerCurl()
+    {
+        Vector3 metacarpalDir = (_middleProximal.Transform.position - _middleMetacarpal.Transform.position).normalized;
+        Vector3 proximalDir = (_middleMiddle.Transform.position - _middleProximal.Transform.position).normalized;
+        Vector3 middleDir = (_middleDistal.Transform.position - _middleMiddle.Transform.position).normalized;
+        Vector3 distalDir = (_middleTipBone.Transform.position - _middleDistal.Transform.position).normalized;
+
+        float proximalAngle = Vector3.Angle(metacarpalDir, proximalDir);
+        float middleAngle = Vector3.Angle(proximalDir, middleDir);
+        float distalAngle = Vector3.Angle(middleDir, distalDir);
+
+        float rawCurl = proximalAngle + middleAngle + distalAngle;
+
+        return rawCurl;
+    }
+
+    private float GetThumbCurl()
+    {
+        Vector3 metacarpalDir = (_thumbProximal.Transform.position - _thumbMetacarpal.Transform.position).normalized;
+        Vector3 proximalDir = (_thumbDistal.Transform.position - _thumbProximal.Transform.position).normalized;
+        Vector3 distalDir = (_thumbTipBone.Transform.position - _thumbDistal.Transform.position).normalized;
+
+        float proximalAngle = Vector3.Angle(metacarpalDir, proximalDir);
+        float distalAngle = Vector3.Angle(proximalDir, distalDir);
+
+        float rawCurl = proximalAngle + distalAngle;
+
+        return rawCurl;
+    }
+
+    private void CalculateFingerDistance(out float index, out float middle)
+    {
+        Vector3 thumbIndex = _thumbTipBone.Transform.position - _indexTipBone.Transform.position;
+        Vector3 thumbMiddle = _thumbTipBone.Transform.position - _middleTipBone.Transform.position;
+
+        index = thumbIndex.magnitude * 100f;
+        middle = thumbMiddle.magnitude * 100f;
+    }
+
+    private float GetThumbAngle()
+    {
+        Vector3 thumb = (_thumbProximal.Transform.position - _thumbMetacarpal.Transform.position).normalized;
+        Vector3 index = (_indexProximal.Transform.position - _indexMetacarpal.Transform.position).normalized;
+        float angle = Vector3.Angle(thumb, index);
+        return angle;
+    }
+
+    private float GetFingerTravelDistance()
+    {
+        Vector3 thumb = _wristBone.Transform.InverseTransformPoint(_thumbTipBone.Transform.position);
+        Vector3 index = _wristBone.Transform.InverseTransformPoint(_indexTipBone.Transform.position);
+        Vector3 middle = _wristBone.Transform.InverseTransformPoint(_middleTipBone.Transform.position);
+
+        float deltaThumb = (thumb - _origThumbPosition).magnitude * 100f;
+        float deltaIndex = (index - _origIndexPosition).magnitude * 100f;
+        float deltaMiddle = (middle - _origMiddlePosition).magnitude * 100f;
+
+        return deltaThumb + deltaIndex + deltaMiddle;
+    }
+
+    public void GetTriangleTransform(out Vector3 pos, out Quaternion rot)
+    {
+        pos = _centroidPosition;
+        rot = _worldWristRotation * _triangleRotation;
+    }
+
+    public void GetTriangleTransformRaw(out Vector3 forward, out Vector3 roughUp)
+    {
+        forward = _triangleForward;
+        roughUp = _triangleUp;
+    }
+
+    public void GetDieLocalTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _wristBone.Transform.InverseTransformPoint(_cube.transform.position);
+        rotation = Quaternion.Inverse(_worldWristRotation) * _cube.transform.rotation;
+    }
+
+    public void GetWristWorldTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _wristBone.Transform.position;
+        rotation = _wristBone.Transform.rotation;
+    }
+
+    public Transform GetWristWorldTransform()
+    {
+        return _wristBone.Transform;
+    }
+
+    public void GetThumbTipWorldTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _thumbTipBone.Transform.position;
+        rotation = _thumbTipBone.Transform.rotation;
+    }
+
+    public void GetIndexTipWorldTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _indexTipBone.Transform.position;
+        rotation = _indexTipBone.Transform.rotation;
+    }
+
+    public void GetMiddleTipWorldTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _middleTipBone.Transform.position;
+        rotation = _middleTipBone.Transform.rotation;
+    }
+
+    public void GetMetacarpalWorldTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _thumbMetacarpal.Transform.position;
+        rotation = _thumbMetacarpal.Transform.rotation;
+    }
+
+    public void GetModifiedThumbTipWorldPosition(out Vector3 position)
+    {
+        position = _scaledWorldThumbTipPosition;
+    }
+
+    public void GetThumbTipLocalTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _wristBone.Transform.InverseTransformPoint(_thumbTipBone.Transform.position);
+        rotation = Quaternion.Inverse(_worldWristRotation) * _thumbTipBone.Transform.rotation;
+    }
+
+    public void GetIndexTipLocalTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _wristBone.Transform.InverseTransformPoint(_indexTipBone.Transform.position);
+        rotation = Quaternion.Inverse(_worldWristRotation) * _indexTipBone.Transform.rotation;
+    }
+
+    public void GetMiddleTipLocalTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _wristBone.Transform.InverseTransformPoint(_middleTipBone.Transform.position);
+        rotation = Quaternion.Inverse(_worldWristRotation) * _middleTipBone.Transform.rotation;
+    }
+
+    public void GetMetacarpalLocalTransform(out Vector3 position, out Quaternion rotation)
+    {
+        position = _wristBone.Transform.InverseTransformPoint(_thumbMetacarpal.Transform.position);
+        rotation = Quaternion.Inverse(_worldWristRotation) * _thumbMetacarpal.Transform.rotation;
+    }
+
+    public void GetModifiedThumbTipLocalPosition(out Vector3 position)
+    {
+        position = _scaledThumbTipPosition;
+    }
+
+    public void GetDeltaMetacarpalRotation(out Quaternion rotation, out float angle, out Vector3 axis)
+    {
+        rotation = _deltaThumbRotation;
+        _deltaThumbRotation.ToAngleAxis(out angle, out axis);
+    }
+
+    public void GetModifiedDeltaMetacarpalRotation(out Quaternion rotation, out float angle, out Vector3 axis)
+    {
+        rotation = _scaledDeltaRotation;
+        _scaledDeltaRotation.ToAngleAxis(out angle, out axis);
+    }
+
+    public void GetTriangleWorldRotation(out Quaternion rotation)
+    {
+        rotation = _worldWristRotation * _triangleRotation;
+    }
+
+    public void GetTriangleLocalRotation(out Quaternion rotation)
+    {
+        rotation = _triangleRotation;
+    }
+
+    public void GetWeightedCentroidWorldPosition(out Vector3 position)
+    {
+        position = _centroidPosition;
+    }
+
+    public void GetWeightedCentroidLocalPosition(out Vector3 position)
+    {
+        position = _wristBone.Transform.InverseTransformPoint(_centroidPosition);
+    }
+
+    public void GetTriangleProperties(out float weight, out float area, out float angle, out float deltaAngle)
+    {
+        weight = _thumbWeight;
+        area = _triangleArea;
+        angle = _triangleP1Angle;
+        deltaAngle = _deltaTriangleP1Angle;
+    }
+
+    public void SetCube(GameObject cube)
+    {
+        _cube = cube;
+    }
+
+    public void SetTransferFunction(int i)
+    {
+        _transferFunction = i;
+    }
+
+    public void SetOVRSkeleton(OVRSkeleton s)
+    {
+        _ovrSkeleton = s;
+    }
+
+    public void SetOVRHand(OVRHand h)
+    {
+        _ovrHand = h;
+    }
+
+    public void SetScaleMode(int i)
+    {
+        _scaleMode = i;
+    }
+
+    public void OnGrab()
+    {
+        _isGrabbed = true;
+        ResetGrabOffset();
+        ResetFingersOrigin();
+        _outline.enabled = true;
+        _pinched = false;
+    }
+
+    public void OnTarget()
+    {
+        _isOnTarget = true;
+        _outline.OutlineColor = Color.green;
+    }
+
+    public void OffTarget()
+    {
+        _isOnTarget = false;
+        _outline.OutlineColor = Color.blue;
+    }
+
+    public void OnRelease()
+    {
+        _isGrabbed = false;
+        _grabOffsetPosition = Vector3.zero;
+        _grabOffsetRotation = Quaternion.identity;
+        // _outline.OutlineWidth = OUTLINE_WIDTH_DEFAULT;
+        _outline.enabled = false;
+        _pinched = false;
+    }
+
+    public void StartClutching()
+    {
+        ResetThumbOrigin();
+        ResetFingersOrigin();
+
+        if (_isGrabbed)
+        {
+            ResetGrabOffset();
+            _cubeRotation = Quaternion.identity;
+        }
+        _outline.OutlineWidth = OUTLINE_WIDTH_CLUTCHING;
+        _isClutching = true;
+    }
+
+    public void EndClutching()
+    {
+        _outline.OutlineWidth = OUTLINE_WIDTH_DEFAULT;
+        _isClutching = false;
+        _tempstr = "";
+    }
+
+    public bool IsGrabbed
+    {
+        get { return _isGrabbed; }
+        set { _isGrabbed = value; }
+    }
+
+    public bool IsClutching
+    {
+        get { return _isClutching; }
+        set { _isClutching = value; }
+    }
+
+    public bool IsOnTarget
+    {
+        get { return _isOnTarget; }
+        set { _isOnTarget = value; }
+    }    
+}

@@ -1,0 +1,2 @@
+C:\Users\master\hptk_expsetting\hptk_plus_rotation\Library\Bee\Android\Prj\IL2CPP\Gradle\unityLibrary\src\main\cpp\CMakeLists.txt
+C:\Users\master\hptk_expsetting\hptk_plus_rotation\Library\Bee\Android\Prj\IL2CPP\Gradle\unityLibrary\src\main\cpp\GameActivity\CMakeLists.txt

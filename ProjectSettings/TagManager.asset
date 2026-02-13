@@ -6,6 +6,10 @@ TagManager:
   tags:
   - AnimFollow
   - Hand
+  - RoomLight
+  - Target
+  - SamplesInfoPanel
+  - HandCollider
   layers:
   - Default
   - TransparentFX
