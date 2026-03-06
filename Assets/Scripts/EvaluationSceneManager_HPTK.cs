@@ -34,6 +34,8 @@ public class EvaluationSceneManager_HPTK : MonoBehaviour
     private const int MAX_TRIAL_NUM = 20;
     private int _trialNum = 1;
 
+    
+
     public event Action OnTrialEnd, OnTrialStart, OnTrialReset, OnSceneLoad, OnTarget, OffTarget, OnTimeout;
     public event Action<string> OnEvent;
 

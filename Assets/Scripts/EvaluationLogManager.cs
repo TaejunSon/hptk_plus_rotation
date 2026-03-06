@@ -10,7 +10,7 @@ public class EvaluationLogManager : MonoBehaviour
     [SerializeField]
     private RotationInteractor _rotationInteractor;
     [SerializeField]
-    private EvaluationSceneManager _evaluationSceneManager;
+    //private EvaluationSceneManager _evaluationSceneManager;
 
     private int _participantNum { get; set; }
     private int _expCondition { get; set; }
@@ -92,8 +92,8 @@ public class EvaluationLogManager : MonoBehaviour
         DateTimeOffset dt = new DateTimeOffset(DateTime.Now);
         _timeStamp = dt.ToUnixTimeMilliseconds();
         
-        _trialNum = _evaluationSceneManager.TrialNum;
-        _trialDuration = _evaluationSceneManager.TrialDuration;
+        //_trialNum = _evaluationSceneManager.TrialNum;
+       //_trialDuration = _evaluationSceneManager.TrialDuration;
 
         UpdateFingerJointsData();
         UpdateModificationData();
@@ -102,13 +102,13 @@ public class EvaluationLogManager : MonoBehaviour
         UpdateStatusData();
         UpdateTrialData();
 
-        if (_evaluationSceneManager.IsInTrial)
-        {
-            AccumulateData();
-            StorePreviousData();
-            UpdateStreamData();
-            _streamWriter.WriteLine(GenerateStreamString());
-        }
+       //if (_evaluationSceneManager.IsInTrial)
+      //  {
+          //  AccumulateData();
+        //    StorePreviousData();
+        //    UpdateStreamData();
+        //    _streamWriter.WriteLine(GenerateStreamString());
+       // }
     }
     
     void OnDestroy()
@@ -265,25 +265,25 @@ public class EvaluationLogManager : MonoBehaviour
 
     public void UpdateDieData()
     {
-        _evaluationSceneManager.GetDieTransform(out _dieWorldPosition, out _dieWorldRotation);
+       // _evaluationSceneManager.GetDieTransform(out _dieWorldPosition, out _dieWorldRotation);
         _rotationInteractor.GetDieLocalTransform(out _dieLocalPosition, out _dieLocalRotation);
-        _evaluationSceneManager.GetTargetOffset(out _targetOffsetPosition, out _targetOffsetRotation);
+       // _evaluationSceneManager.GetTargetOffset(out _targetOffsetPosition, out _targetOffsetRotation);
     }
 
     public void UpdateHeadData()
     {
-        _evaluationSceneManager.GetHeadTransform(out _headWorldPosition, out _headWorldRotation);
+       // _evaluationSceneManager.GetHeadTransform(out _headWorldPosition, out _headWorldRotation);
     }
 
     public void UpdateStatusData()
     {
-        _evaluationSceneManager.GetStatus(out _isGrabbing, out _isClutching, out _isOverlapped, out _isTimeout);
+       // _evaluationSceneManager.GetStatus(out _isGrabbing, out _isClutching, out _isOverlapped, out _isTimeout);
     }
 
     public void UpdateTrialData()
     {
-        _trialNum = _evaluationSceneManager.TrialNum;
-        _trialDuration = _evaluationSceneManager.TrialDuration;
+      //  _trialNum = _evaluationSceneManager.TrialNum;
+       // _trialDuration = _evaluationSceneManager.TrialDuration;
     }
 
     public void StorePreviousData()
