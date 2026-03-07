@@ -9,7 +9,7 @@ public class ExperimentLogManager : MonoBehaviour
     private const string EVENT_GRAB_LEFT = "Grab_left";
     private const string EVENT_RELEASE_LEFT = "Release_left";
 
-    private const string BASE_DIRECTORY_PATH = @"C:\Users\master\hptk_expsetting\hptk_plus_rotation\Data\";
+    private const string BASE_DIRECTORY_PATH = @"C:\Users\Taejun\hptk_plus_rotation\Data\";
     //private const string RIGHT_PUPPET_PATH = "DefaultAvatar.AB.URP/Representations/Hand.R/Puppet.AB";
     //private const string RIGHT_PUPPET_PATH_CLONE = "DefaultAvatar.AB.URP (Clone)/Representations/Hand.R/Puppet.AB";
 

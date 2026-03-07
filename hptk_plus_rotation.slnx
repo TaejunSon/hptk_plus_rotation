@@ -8,8 +8,8 @@
   <Project Path="Oculus.VR.csproj" />
   <Project Path="Meta.WitAi.Conduit.Editor.csproj" />
   <Project Path="Meta.WitAi.csproj" />
-  <Project Path="jorgejgnz.hptk.runtime.csproj" />
   <Project Path="Oculus.VR.Editor.csproj" />
+  <Project Path="jorgejgnz.hptk.runtime.csproj" />
   <Project Path="Oculus.LipSync.csproj" />
   <Project Path="Oculus.Interaction.OVR.csproj" />
   <Project Path="Meta.WitAI.Lib.Editor.csproj" />
@@ -36,7 +36,6 @@
   <Project Path="Meta.Voice.Samples.ShapesConduit.csproj" />
   <Project Path="Meta.VoiceSDK.Mic.Other.csproj" />
   <Project Path="Oculus.Interaction.InterfaceSupport.csproj" />
-  <Project Path="jorgejgnz.hptk.editor.csproj" />
   <Project Path="AssistantCoreSDKRuntime.csproj" />
   <Project Path="Oculus.AudioManager.Audio.Editor.csproj" />
   <Project Path="Oculus.Spatializer.Editor.csproj" />
@@ -56,4 +55,5 @@
   <Project Path="AssistantCoreSDKEditor.csproj" />
   <Project Path="Meta.VoiceSDK.Mic.WebGL.csproj" />
   <Project Path="Meta.Voice.Samples.Chess.csproj" />
+  <Project Path="jorgejgnz.hptk.editor.csproj" />
 </Solution>

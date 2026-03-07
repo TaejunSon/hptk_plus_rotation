@@ -1508,7 +1508,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: '::'
   _participantNum: 1
   _isLeftHanded: 0
-  _maxTrialNum: 2
+  _maxTrialNum: 10
   _diePrefab: {fileID: 2494809711538453874, guid: d409e216c9b7b664d816f24c30b04d5c, type: 3}
   _targetPrefab: {fileID: 1618645656371774453, guid: 86a01932818dd4045bc2e13c8229874a, type: 3}
   _centerEyeAnchor: {fileID: 376838488}
