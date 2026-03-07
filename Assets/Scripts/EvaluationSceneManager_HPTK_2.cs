@@ -14,6 +14,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private const string EVENT_TRIAL_RESET = "Trial Reset";
     private const string EVENT_GRAB = "Grab";
     private const string EVENT_RELEASE = "Release";
+    private const string EVENT_GRAB_LEFT = "Grab_left";
+    private const string EVENT_RELEASE_LEFT = "Release_left";
     private const string EVENT_ON_TARGET = "On Target";
     private const string EVENT_OFF_TARGET = "Off Target";
     private const string EVENT_TIMEOUT = "Timed Out";
@@ -62,10 +64,23 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private Pose _triangle, _prevTriangle;
     private float _fingerMaxSpeed;
     
+    public Pose _wristWorld_left, _thumbTipWorld_left, _indexTipWorld_left, _middleTipWorld_left;
+    public Pose _thumbTip_left, _indexTip_left, _middleTip_left;
+    private Pose _prevThumbTip_left, _prevIndexTip_left, _prevMiddleTip_left;
+     private Pose _thumbTipEuro_left, _indexTipEuro_left, _middleTipEuro_left;
+    
+    private Pose _triangle_left, _prevTriangle_left;
+    private float _fingerMaxSpeed_left;
+    
+
     public bool IsGrabbed;
+    public bool IsGrabbed_left;
+    private bool _isGrabbed_right;
     private Pose _prevObject, _object, _objectWorld, _objectLocal;
+    private Pose _objectLocal_left;
     private Pose _grabOffset, _grabOffsetTriangle;
     private OneEuroFilter<Vector3>[] _oneEuroFiltersVector3;
+    private OneEuroFilter<Vector3>[] _oneEuroFiltersVector3_left;
 
     private int _trialNum = 1;
 
@@ -74,12 +89,21 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
     public Transform wristWorld, thumbTipWorld, indexTipWorld, middleTipWorld;
 
+    public Transform wristWorld_left, thumbTipWorld_left, indexTipWorld_left, middleTipWorld_left;
+
+
     void Awake()
     {
         _oneEuroFiltersVector3 = new OneEuroFilter<Vector3>[3];
         for (int i = 0; i < _oneEuroFiltersVector3.Length; i++)
         {
             _oneEuroFiltersVector3[i] = new OneEuroFilter<Vector3>();
+        }
+
+        _oneEuroFiltersVector3_left = new OneEuroFilter<Vector3>[3];
+        for (int i = 0; i < _oneEuroFiltersVector3_left.Length; i++)
+        {
+            _oneEuroFiltersVector3_left[i] = new OneEuroFilter<Vector3>();
         }
 
         GenerateDie();
@@ -126,13 +150,13 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         OnSceneLoad?.Invoke();
 
         IsGrabbed = false;
+        IsGrabbed_left = false;
+        _isGrabbed_right = false;
         
     }
 
     void Update()
     {
-        _logManager?.WriteStreamRow();
-
         if (IsResetPressedThisFrame())
         {
             OnTrialReset?.Invoke();
@@ -156,6 +180,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         }
 
         if (!_isInTrial) return;
+
+        _logManager?.WriteStreamRow();
 
         bool isErrorSmall = CalculateError(out _targetOffsetPosition, out _targetOffsetRotation);
 
@@ -244,6 +270,53 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         _objectLocal.position = Quaternion.Inverse(_wristWorld.rotation) * (_objectWorld.position - _wristWorld.position);
         _objectLocal.rotation = Quaternion.Inverse(_wristWorld.rotation) * _objectWorld.rotation;
+
+        if (wristWorld_left != null && thumbTipWorld_left != null && indexTipWorld_left != null && middleTipWorld_left != null)
+        {
+            _wristWorld_left.position = wristWorld_left.position;
+            _wristWorld_left.rotation = wristWorld_left.rotation;
+
+            _thumbTipWorld_left.position = thumbTipWorld_left.position;
+            _indexTipWorld_left.position = indexTipWorld_left.position;
+            _middleTipWorld_left.position = middleTipWorld_left.position;
+
+            _thumbTip_left.position = wristWorld_left.InverseTransformPoint(thumbTipWorld_left.position);
+            _indexTip_left.position = wristWorld_left.InverseTransformPoint(indexTipWorld_left.position);
+            _middleTip_left.position = wristWorld_left.InverseTransformPoint(middleTipWorld_left.position);
+
+            _thumbTipEuro_left.position = _oneEuroFiltersVector3_left[0].Filter(_thumbTip_left.position, Time.deltaTime);
+            _indexTipEuro_left.position = _oneEuroFiltersVector3_left[1].Filter(_indexTip_left.position, Time.deltaTime);
+            _middleTipEuro_left.position = _oneEuroFiltersVector3_left[2].Filter(_middleTip_left.position, Time.deltaTime);
+
+            Vector3 thumb_left = _thumbTipEuro_left.position;
+            Vector3 index_left = _indexTipEuro_left.position;
+            Vector3 middle_left = _middleTipEuro_left.position;
+
+            _triangle_left.position = GetWeightedTriangleCentroid(thumb_left, index_left, middle_left);
+
+            bool isAngleValid_left, isTriangleValid_left, isAreaValid_left;
+            isAngleValid_left = CalculateAngleAtVertex(thumb_left, index_left, middle_left, out float triangleP1Angle_left);
+            isTriangleValid_left = CalculateTriangleOrientationWithOffset(thumb_left, index_left, middle_left, out _triangle_left.rotation);
+            isAreaValid_left = CalculateTriangleArea(thumb_left, index_left, middle_left, out float triangleArea_left);
+            _fingerMaxSpeed_left = GetMaxFingerSpeed_left(thumb_left, index_left, middle_left);
+
+            _prevThumbTip_left.position = thumb_left;
+            _prevIndexTip_left.position = index_left;
+            _prevMiddleTip_left.position = middle_left;
+
+            float deltaAngle_left = 0f;
+            Vector3 deltaAxis_left = Vector3.one;
+
+            if (isAngleValid_left && isTriangleValid_left && isAreaValid_left)
+            {
+                Quaternion deltaRotation_left = _triangle_left.rotation * Quaternion.Inverse(_prevTriangle_left.rotation);
+                deltaRotation_left.ToAngleAxis(out deltaAngle_left, out deltaAxis_left);
+                _prevTriangle_left.rotation = _triangle_left.rotation;
+            }
+
+            _objectLocal_left.position = Quaternion.Inverse(_wristWorld_left.rotation) * (_objectWorld.position - _wristWorld_left.position);
+            _objectLocal_left.rotation = Quaternion.Inverse(_wristWorld_left.rotation) * _objectWorld.rotation;
+        }
 
     }
 
@@ -357,6 +430,21 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         return Math.Max(speedThumb, Math.Max(speedIndex, speedMiddle));
     }
 
+    private float GetMaxFingerSpeed_left(Vector3 thumb, Vector3 index, Vector3 middle)
+    {
+        // in m
+        float deltaThumb = (thumb - _prevThumbTip_left.position).magnitude;
+        float deltaIndex = (index - _prevIndexTip_left.position).magnitude;
+        float deltaMiddle = (middle - _prevMiddleTip_left.position).magnitude;
+
+        // in m/s
+        float speedThumb = deltaThumb / Time.deltaTime;
+        float speedIndex = deltaIndex / Time.deltaTime;
+        float speedMiddle = deltaMiddle / Time.deltaTime;
+
+        return Math.Max(speedThumb, Math.Max(speedIndex, speedMiddle));
+    }
+
     private static bool IsResetPressedThisFrame()
     {
 #if ENABLE_INPUT_SYSTEM
@@ -380,6 +468,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         {
             _currentPheasy.OnGrabEvent -= HandleGrabEvent;
             _currentPheasy.OnReleaseEvent -= HandleReleaseEvent;
+            _currentPheasy.OnGrabEvent_left -= HandleGrabEvent_left;
+            _currentPheasy.OnReleaseEvent_left -= HandleReleaseEvent_left;
             _currentPheasy = null;
         }
         if (_currentRespawnable != null)
@@ -443,6 +533,18 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         OnEvent?.Invoke(EVENT_RELEASE);
     }
 
+    private void HandleGrabEvent_left()
+    {
+        OnGrab_left();
+        OnEvent?.Invoke(EVENT_GRAB_LEFT);
+    }
+
+    private void HandleReleaseEvent_left()
+    {
+        OnRelease_left();
+        OnEvent?.Invoke(EVENT_RELEASE_LEFT);
+    }
+
     private void HandleRespawnEvent()
     {
         if (_isInTrial)
@@ -458,26 +560,53 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
     private void OnGrab()
     {
-        IsGrabbed = true;
+        _isGrabbed_right = true;
+        UpdateGrabbedState();
+    }
 
-        if (_outline != null) _outline.enabled = true;
-        if (!_isInTrial)
-        {
-            OnTrialStart?.Invoke();
-        }
+    private void OnGrab_left()
+    {
+        IsGrabbed_left = true;
+        UpdateGrabbedState();
     }
 
     private void OnRelease()
     {
-        IsGrabbed = false;
+        _isGrabbed_right = false;
+        UpdateGrabbedState();
+    }
 
-        if (_isOnTarget)
+    private void OnRelease_left()
+    {
+        IsGrabbed_left = false;
+        UpdateGrabbedState();
+    }
+
+    private void UpdateGrabbedState()
+    {
+        bool wasGrabbed = IsGrabbed;
+        IsGrabbed = _isGrabbed_right || IsGrabbed_left;
+
+        if (!wasGrabbed && IsGrabbed)
         {
-            _isOnTarget = false;
-            OffTarget?.Invoke();
+            if (_outline != null) _outline.enabled = true;
+            if (!_isInTrial)
+            {
+                OnTrialStart?.Invoke();
+            }
+            return;
         }
 
-        if (_outline != null) _outline.enabled = false;
+        if (wasGrabbed && !IsGrabbed)
+        {
+            if (_isOnTarget)
+            {
+                _isOnTarget = false;
+                OffTarget?.Invoke();
+            }
+
+            if (_outline != null) _outline.enabled = false;
+        }
     }
 
     public bool CalculateError(out Vector3 deltaPos, out Quaternion deltaRot)
@@ -524,8 +653,12 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         _currentPheasy.OnGrabEvent -= HandleGrabEvent;
         _currentPheasy.OnReleaseEvent -= HandleReleaseEvent;
+        _currentPheasy.OnGrabEvent_left -= HandleGrabEvent_left;
+        _currentPheasy.OnReleaseEvent_left -= HandleReleaseEvent_left;
         _currentPheasy.OnGrabEvent += HandleGrabEvent;
         _currentPheasy.OnReleaseEvent += HandleReleaseEvent;
+        _currentPheasy.OnGrabEvent_left += HandleGrabEvent_left;
+        _currentPheasy.OnReleaseEvent_left += HandleReleaseEvent_left;
 
         _currentRespawnable = _die.GetComponentInChildren<Respawnable>();
         if (_currentRespawnable != null)
@@ -644,18 +777,30 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     }
 
     public bool IsTimeout => _isTimeout;
+    public bool IsGrabbed_right => _isGrabbed_right;
     public Vector3 WristWorldPosition => _wristWorld.position;
     public Quaternion WristWorldRotation => _wristWorld.rotation;
+    public Vector3 WristWorldPosition_left => _wristWorld_left.position;
+    public Quaternion WristWorldRotation_left => _wristWorld_left.rotation;
     public Vector3 ThumbTipWorldPosition => _thumbTipWorld.position;
     public Vector3 IndexTipWorldPosition => _indexTipWorld.position;
     public Vector3 MiddleTipWorldPosition => _middleTipWorld.position;
+    public Vector3 ThumbTipWorldPosition_left => _thumbTipWorld_left.position;
+    public Vector3 IndexTipWorldPosition_left => _indexTipWorld_left.position;
+    public Vector3 MiddleTipWorldPosition_left => _middleTipWorld_left.position;
     public Vector3 ThumbTipLocalPosition => _thumbTip.position;
     public Vector3 IndexTipLocalPosition => _indexTip.position;
     public Vector3 MiddleTipLocalPosition => _middleTip.position;
+    public Vector3 ThumbTipLocalPosition_left => _thumbTip_left.position;
+    public Vector3 IndexTipLocalPosition_left => _indexTip_left.position;
+    public Vector3 MiddleTipLocalPosition_left => _middleTip_left.position;
     public Vector3 TriangleCentroidPosition => _triangle.position;
     public Quaternion TriangleRotation => _triangle.rotation;
+    public Vector3 TriangleCentroidPosition_left => _triangle_left.position;
+    public Quaternion TriangleRotation_left => _triangle_left.rotation;
     public Pose ObjectWorldPose => _objectWorld;
     public Pose ObjectLocalPose => _objectLocal;
+    public Pose ObjectLocalPose_left => _objectLocal_left;
     //public float AngleScaleFactor => _angleScaleFactor;
     //public bool IsRotating => _isRotating;
     //public bool IsGrabbed => _grabbedObject != null;
@@ -663,6 +808,9 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     public Vector3 ThumbTipEuroPosition => _thumbTipEuro.position;
     public Vector3 IndexTipEuroPosition => _indexTipEuro.position;
     public Vector3 MiddleTipEuroPosition => _middleTipEuro.position;
+    public Vector3 ThumbTipEuroPosition_left => _thumbTipEuro_left.position;
+    public Vector3 IndexTipEuroPosition_left => _indexTipEuro_left.position;
+    public Vector3 MiddleTipEuroPosition_left => _middleTipEuro_left.position;
     //public bool IsClutching => _isClutching;
 
     public bool IsOnTarget => _isOnTarget;

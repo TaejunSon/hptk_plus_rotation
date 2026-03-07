@@ -175,7 +175,7 @@ PrefabInstance:
     - target: {fileID: 8173902887938056489, guid: d5e0552883fd704428bf13433605b6dc, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 2100000, guid: 1bcbfb03d835df84e895394e3895ba7e, type: 2}
+      objectReference: {fileID: 2100000, guid: 7177004f410d59b40b47166c4342358b, type: 2}
     m_RemovedComponents:
     - {fileID: 9000104568821194973, guid: d5e0552883fd704428bf13433605b6dc, type: 3}
     - {fileID: 7183886348685409200, guid: d5e0552883fd704428bf13433605b6dc, type: 3}
@@ -269,9 +269,16 @@ MonoBehaviour:
   onRelease:
     m_PersistentCalls:
       m_Calls: []
+  onGrab_left:
+    m_PersistentCalls:
+      m_Calls: []
+  onRelease_left:
+    m_PersistentCalls:
+      m_Calls: []
   axis: {fileID: 0}
   axisScale: 0.02
   handTag: HandCollider
+  handTag_left: HandCollider_left
   myInteractionColliders: []
   editMode: 1
   ignoring: []
