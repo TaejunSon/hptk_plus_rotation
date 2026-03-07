@@ -26,3 +26,7 @@
 # OS generated
 .DS_Store
 Thumbs.db
+
+/Assets/Oculus/
+/HPTK-Plus/
+*.meta
