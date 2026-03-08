@@ -179,22 +179,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             return;
         }
 
-        if (!_isInTrial) return;
-
-        _logManager?.WriteStreamRow();
-
         bool isErrorSmall = CalculateError(out _targetOffsetPosition, out _targetOffsetRotation);
-
-        // target state is valid only while grabbing
-        if (!IsGrabbed)
-        {
-            if (_isOnTarget)
-            {
-                _isOnTarget = false;
-                OffTarget?.Invoke();
-            }
-            return;
-        }
 
         if (isErrorSmall && !_isOnTarget)
         {
@@ -207,6 +192,10 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             _isOnTarget = false;
             OffTarget?.Invoke();
         }
+
+        if (!_isInTrial) return;
+
+        _logManager?.WriteStreamRow();
 
         if (_isOnTarget)
         {
@@ -589,7 +578,6 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         if (!wasGrabbed && IsGrabbed)
         {
-            if (_outline != null) _outline.enabled = true;
             if (!_isInTrial)
             {
                 OnTrialStart?.Invoke();
@@ -599,13 +587,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         if (wasGrabbed && !IsGrabbed)
         {
-            if (_isOnTarget)
-            {
-                _isOnTarget = false;
-                OffTarget?.Invoke();
-            }
-
-            if (_outline != null) _outline.enabled = false;
+            _dwellDuration = 0f;
         }
     }
 
@@ -640,7 +622,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         if (_outline == null) _outline = _die.GetComponentInChildren<Outline>();
         if (_outline != null)
         {
-            _outline.enabled = false;
+            _outline.enabled = true;
             _outline.OutlineColor = Color.blue;
         }
 

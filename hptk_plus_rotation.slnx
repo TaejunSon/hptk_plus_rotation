@@ -6,10 +6,10 @@
   <Project Path="Oculus.Interaction.OVR.Samples.csproj" />
   <Project Path="Meta.WitAi.Lib.csproj" />
   <Project Path="Oculus.VR.csproj" />
+  <Project Path="jorgejgnz.hptk.runtime.csproj" />
   <Project Path="Meta.WitAi.Conduit.Editor.csproj" />
   <Project Path="Meta.WitAi.csproj" />
   <Project Path="Oculus.VR.Editor.csproj" />
-  <Project Path="jorgejgnz.hptk.runtime.csproj" />
   <Project Path="Oculus.LipSync.csproj" />
   <Project Path="Oculus.Interaction.OVR.csproj" />
   <Project Path="Meta.WitAI.Lib.Editor.csproj" />
