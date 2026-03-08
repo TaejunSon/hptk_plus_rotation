@@ -25,6 +25,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     [SerializeField]
     private bool _isLeftHanded = false;
     [SerializeField]
+    private bool _isPracticeMode = false;
+    [SerializeField]
     private int _maxTrialNum = 20;
     [SerializeField]
     private GameObject _diePrefab, _targetPrefab;
@@ -34,6 +36,12 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     protected TextMeshProUGUI _text;
     [SerializeField]
     private ExperimentLogManager _logManager;
+    [SerializeField]
+    private AudioSource _audioSource;
+    [SerializeField]
+    private AudioClip _successSound;
+    [SerializeField]
+    private AudioClip _timeoutSound;
 
     private GameObject _die, _target;
     private Pheasy _currentPheasy;
@@ -120,6 +128,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         // Log Trial End before scene state is reset/destroyed.
         OnTrialEnd += () => { OnEvent?.Invoke(EVENT_TRIAL_END); };
+        OnTrialEnd += () => { if (!_isTimeout) PlaySound(_successSound); };
         OnTrialEnd += EndTrial;
 
         OnTrialReset += ResetTrial;
@@ -135,14 +144,15 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         OnTrialReset += () => { if (_outline != null) _outline.OutlineColor = Color.blue; };
 
         OnTimeout += Timeout;
+        OnTimeout += () => { PlaySound(_timeoutSound); };
         OnTimeout += () => { OnEvent?.Invoke(EVENT_TIMEOUT); };
 
-        if (_logManager != null)
+        if (!_isPracticeMode && _logManager != null)
         {
             _logManager.Initialize(this);
             OnEvent += HandleLogEvent;
         }
-        else
+        else if (!_isPracticeMode)
         {
             Debug.LogWarning("ExperimentLogManager is not assigned.");
         }
@@ -172,7 +182,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         _trialDuration += Time.deltaTime;
 
-        if (_isInTrial && _trialDuration > TIMEOUT_THRESHOLD)
+        if (!_isPracticeMode && _isInTrial && _trialDuration > TIMEOUT_THRESHOLD)
         {
             OnTimeout?.Invoke();
             if (_trialNum <= _maxTrialNum) OnSceneLoad?.Invoke();
@@ -195,7 +205,10 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         if (!_isInTrial) return;
 
-        _logManager?.WriteStreamRow();
+        if (!_isPracticeMode)
+        {
+            _logManager?.WriteStreamRow();
+        }
 
         if (_isOnTarget)
         {
@@ -447,7 +460,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
     void OnDestroy()
     {
-        if (_logManager != null)
+        if (!_isPracticeMode && _logManager != null)
         {
             OnEvent -= HandleLogEvent;
             _logManager.CloseAll();
@@ -545,6 +558,14 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private void HandleLogEvent(string eventName)
     {
         _logManager?.OnEvent(eventName);
+    }
+
+    private void PlaySound(AudioClip clip)
+    {
+        if (_audioSource != null && clip != null)
+        {
+            _audioSource.PlayOneShot(clip);
+        }
     }
 
     private void OnGrab()
