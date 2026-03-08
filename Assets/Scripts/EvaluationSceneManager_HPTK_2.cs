@@ -680,7 +680,9 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private void ResetDie()
     {
         if (_die == null) return;
-        _die.transform.position = new Vector3(-_initPosition.x, _initPosition.y, _initPosition.z);
+        _die.transform.position = _isLeftHanded
+            ? _initPosition
+            : new Vector3(-_initPosition.x, _initPosition.y, _initPosition.z);
         _die.transform.localScale = Vector3.one * CUBE_SCALE;
         _die.transform.rotation = Quaternion.identity;
 
@@ -703,7 +705,9 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         _target = Instantiate(_targetPrefab);
         Vector3 axis = UnityEngine.Random.onUnitSphere;
         _target.transform.Rotate(axis.normalized, INIT_ROTATION_DEG);
-        _target.transform.position = _initPosition;
+        _target.transform.position = !_isLeftHanded
+            ? _initPosition
+            : new Vector3(-_initPosition.x, _initPosition.y, _initPosition.z);
         _target.transform.localScale = Vector3.one * CUBE_SCALE;
     }
 
