@@ -63,11 +63,16 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private Vector3 _targetOffsetPosition;
     private Quaternion _targetOffsetRotation;
     private const float POSITION_THRESHOLD = 0.02f, ROTATION_THRESHOLD_DEG = 10f;
+    private const float TRIAL_START_POSITION_THRESHOLD_M = 0.001f; // 1 mm
+    private const float TRIAL_START_ROTATION_THRESHOLD_DEG = 0.1f;
 
     private bool _isOnTarget = false, _isTimeout = false, _isInTrial = false;
 
     private const float DWELL_THRESHOLD = 1f, TIMEOUT_THRESHOLD = 30f;
     private float _dwellDuration, _trialDuration;
+    private Vector3 _trialStartReferencePosition;
+    private Quaternion _trialStartReferenceRotation = Quaternion.identity;
+    private bool _hasTrialStartReference = false;
 
     public Transform DieTransform => _die != null ? _die.transform : null;
 
@@ -190,6 +195,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             return;
         }
 
+        TryStartTrialFromDieMotion();
+
         if (_die != null && _target != null)
         {
             CalculateError(out Vector3 debugDeltaPos, out Quaternion debugDeltaRot);
@@ -197,7 +204,10 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             Debug.Log($"[Diff] dPos:{debugDeltaPos} | pErr:{debugDeltaPos.magnitude:F4} | dRot:{debugDeltaRot} | rErr:{debugAngleError:F2} | axis:{debugAxis}");
         }
 
-        _trialDuration += Time.deltaTime;
+        if (_isInTrial)
+        {
+            _trialDuration += Time.deltaTime;
+        }
 
         if (!_isPracticeMode && _isInTrial && _trialDuration > TIMEOUT_THRESHOLD)
         {
@@ -518,6 +528,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private void LoadNewTrial()
     {
         GenerateTarget();
+        CacheTrialStartReferencePose();
         UpdateUIText();
     }
 
@@ -563,6 +574,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         ResetDie();
         _isOnTarget = false;
         _trialDuration = 0f;
+        _isInTrial = false;
+        CacheTrialStartReferencePose();
     }
 
     private void Timeout()
@@ -647,10 +660,6 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         if (!wasGrabbed && IsGrabbed)
         {
-            if (!_isInTrial && !_isAwaitingBlockAdvance && !_isExperimentCompleted)
-            {
-                OnTrialStart?.Invoke();
-            }
             return;
         }
 
@@ -761,6 +770,45 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
         }
+    }
+
+    private void TryStartTrialFromDieMotion()
+    {
+        if (_isInTrial || _isAwaitingBlockAdvance || _isExperimentCompleted || !_hasTrialStartReference || _die == null)
+        {
+            return;
+        }
+
+        Vector3 currentPosition = _die.transform.position;
+        Quaternion currentRotation = _die.transform.rotation;
+
+        float positionDelta = (currentPosition - _trialStartReferencePosition).magnitude;
+        Quaternion deltaRotation = currentRotation * Quaternion.Inverse(_trialStartReferenceRotation);
+        float rotationDelta = GetShortestRotationAngle(deltaRotation);
+
+        if (positionDelta >= TRIAL_START_POSITION_THRESHOLD_M || rotationDelta >= TRIAL_START_ROTATION_THRESHOLD_DEG)
+        {
+            OnTrialStart?.Invoke();
+        }
+    }
+
+    private void CacheTrialStartReferencePose()
+    {
+        if (_die == null)
+        {
+            _hasTrialStartReference = false;
+            return;
+        }
+
+        _trialStartReferencePosition = _die.transform.position;
+        _trialStartReferenceRotation = _die.transform.rotation;
+        _hasTrialStartReference = true;
+    }
+
+    private static float GetShortestRotationAngle(Quaternion deltaRotation)
+    {
+        deltaRotation.ToAngleAxis(out float angle, out _);
+        return angle > 180f ? 360f - angle : angle;
     }
 
     private void GenerateTarget()
