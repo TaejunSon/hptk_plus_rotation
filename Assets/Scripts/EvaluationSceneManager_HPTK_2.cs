@@ -8,6 +8,8 @@ using UnityEngine.InputSystem;
 
 public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 {
+    public enum MethodType { Baseline_X = 0, Physics_Y = 1, GeoCtrl_Z= 2 }
+
     private const string EVENT_TRIAL_LOAD = "Trial Load";
     private const string EVENT_TRIAL_START = "Trial Start";
     private const string EVENT_TRIAL_END = "Trial End";
@@ -27,7 +29,11 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     [SerializeField]
     private bool _isPracticeMode = false;
     [SerializeField]
-    private int _maxTrialNum = 20;
+    private MethodType _methodType = MethodType.Physics_Y;
+    [SerializeField]
+    private int _maxTrialPerBlock = 10;
+    [SerializeField]
+    private int _maxBlockNum = 3;
     [SerializeField]
     private GameObject _diePrefab, _targetPrefab;
     [SerializeField]
@@ -42,6 +48,8 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private AudioClip _successSound;
     [SerializeField]
     private AudioClip _timeoutSound;
+    [SerializeField]
+    private AudioClip _blockEndSound;
 
     private GameObject _die, _target;
     private Pheasy _currentPheasy;
@@ -91,6 +99,9 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     private OneEuroFilter<Vector3>[] _oneEuroFiltersVector3_left;
 
     private int _trialNum = 1;
+    private int _blockNum = 1;
+    private bool _isAwaitingBlockAdvance = false;
+    private bool _isExperimentCompleted = false;
 
     public event Action OnTrialEnd, OnTrialStart, OnTrialReset, OnSceneLoad, OnTarget, OffTarget, OnTimeout;
     public event Action<string> OnEvent;
@@ -167,6 +178,12 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
     void Update()
     {
+        if (IsAdvanceBlockPressedThisFrame())
+        {
+            TryAdvanceBlock();
+            return;
+        }
+
         if (IsResetPressedThisFrame())
         {
             OnTrialReset?.Invoke();
@@ -185,7 +202,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         if (!_isPracticeMode && _isInTrial && _trialDuration > TIMEOUT_THRESHOLD)
         {
             OnTimeout?.Invoke();
-            if (_trialNum <= _maxTrialNum) OnSceneLoad?.Invoke();
+            TryLoadNextTrialAfterEnd();
             return;
         }
 
@@ -216,9 +233,13 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             if (_dwellDuration > DWELL_THRESHOLD)
             {
                 OnTrialEnd?.Invoke();
-                if (_trialNum <= _maxTrialNum) OnSceneLoad?.Invoke();
+                TryLoadNextTrialAfterEnd();
             }
         }
+
+        // Trial could have ended in this frame via success/timeout callback.
+        if (!_isInTrial || _die == null) return;
+
     //Handinteractor part
         _wristWorld.position = wristWorld.position;
         _wristWorld.rotation = wristWorld.rotation;
@@ -458,6 +479,17 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 #endif
     }
 
+    private static bool IsAdvanceBlockPressedThisFrame()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return Keyboard.current != null && Keyboard.current.numpadEnterKey.wasPressedThisFrame;
+#elif ENABLE_LEGACY_INPUT_MANAGER
+        return Input.GetKeyDown(KeyCode.KeypadEnter);
+#else
+        return false;
+#endif
+    }
+
     void OnDestroy()
     {
         if (!_isPracticeMode && _logManager != null)
@@ -503,11 +535,27 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
         _isOnTarget = false;
         _isInTrial = false;
 
-        if (_trialNum == _maxTrialNum)
-        {
-            if (_die != null) _die.SetActive(false);
-        }
         _trialNum++;
+        if (_trialNum > _maxTrialPerBlock)
+        {
+            if (_blockNum >= _maxBlockNum)
+            {
+                _isExperimentCompleted = true;
+            }
+            else
+            {
+                _isAwaitingBlockAdvance = true;
+                PlaySound(_blockEndSound);
+            }
+
+            // Avoid stale physics/grab state across blocks by recreating the die.
+            DestroyDie();
+
+            // Ensure trial-start gating can restart cleanly in the next block.
+            ResetGrabState();
+        }
+
+        UpdateUIText();
     }
 
     private void ResetTrial()
@@ -599,7 +647,7 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
         if (!wasGrabbed && IsGrabbed)
         {
-            if (!_isInTrial)
+            if (!_isInTrial && !_isAwaitingBlockAdvance && !_isExperimentCompleted)
             {
                 OnTrialStart?.Invoke();
             }
@@ -647,6 +695,13 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
             _outline.OutlineColor = Color.blue;
         }
 
+        RebindDieEventHandlers();
+    }
+
+    private void RebindDieEventHandlers()
+    {
+        if (_die == null) return;
+
         _currentPheasy = _die.GetComponentInChildren<Pheasy>();
         if (_currentPheasy == null)
         {
@@ -673,6 +728,20 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
     private void DestroyDie()
     {
+        if (_currentPheasy != null)
+        {
+            _currentPheasy.OnGrabEvent -= HandleGrabEvent;
+            _currentPheasy.OnReleaseEvent -= HandleReleaseEvent;
+            _currentPheasy.OnGrabEvent_left -= HandleGrabEvent_left;
+            _currentPheasy.OnReleaseEvent_left -= HandleReleaseEvent_left;
+            _currentPheasy = null;
+        }
+        if (_currentRespawnable != null)
+        {
+            _currentRespawnable.OnRespawnEvent -= HandleRespawnEvent;
+            _currentRespawnable = null;
+        }
+
         if (_die != null) Destroy(_die);
         _die = null;
     }
@@ -721,8 +790,56 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
     {
         if (_text != null)
         {
-            _text.text = $"Trial {_trialNum}/{_maxTrialNum}";
+            if (_isExperimentCompleted)
+            {
+                _text.text = $"Completed: Block {_maxBlockNum}/{_maxBlockNum}";
+            }
+            else if (_isAwaitingBlockAdvance)
+            {
+                _text.text = $"Block {_blockNum}/{_maxBlockNum} complete - press Keypad Enter";
+            }
+            else
+            {
+                _text.text = $"Trial {_trialNum}/{_maxTrialPerBlock}: Block {_blockNum}/{_maxBlockNum}";
+            }
         }
+    }
+
+    private void TryLoadNextTrialAfterEnd()
+    {
+        if (_isExperimentCompleted || _isAwaitingBlockAdvance)
+        {
+            UpdateUIText();
+            return;
+        }
+
+        OnSceneLoad?.Invoke();
+    }
+
+    private void TryAdvanceBlock()
+    {
+        if (_isExperimentCompleted || !_isAwaitingBlockAdvance) return;
+
+        _blockNum++;
+        _trialNum = 1;
+        _isAwaitingBlockAdvance = false;
+        _isOnTarget = false;
+        _isTimeout = false;
+        _isInTrial = false;
+        _trialDuration = 0f;
+        _dwellDuration = 0f;
+        ResetGrabState();
+
+        GenerateDie();
+
+        OnSceneLoad?.Invoke();
+    }
+
+    private void ResetGrabState()
+    {
+        _isGrabbed_right = false;
+        IsGrabbed_left = false;
+        IsGrabbed = false;
     }
 
     public void GetHeadTransform(out Vector3 position, out Quaternion rotation)
@@ -761,6 +878,9 @@ public class EvaluationSceneManager_HPTK_2 : MonoBehaviour
 
     public bool IsInTrial => _isInTrial;
     public int TrialNum => _trialNum;
+    public int BlockNum => _blockNum;
+    public int ParticipantNum => _participantNum;
+    public string MethodLabel => _methodType.ToString();
     public float TrialDuration => _trialDuration;
 
     public Vector3 HeadPosition => _centerEyeAnchor.transform.position;

@@ -10,6 +10,7 @@ public class ExperimentLogManager : MonoBehaviour
     private const string EVENT_RELEASE_LEFT = "Release_left";
 
     private const string BASE_DIRECTORY_PATH = @"C:\Users\Taejun\hptk_plus_rotation\Data\";
+    private const string EXPERIMENT_LABEL = "Evaluation_Exp2";
     //private const string RIGHT_PUPPET_PATH = "DefaultAvatar.AB.URP/Representations/Hand.R/Puppet.AB";
     //private const string RIGHT_PUPPET_PATH_CLONE = "DefaultAvatar.AB.URP (Clone)/Representations/Hand.R/Puppet.AB";
 
@@ -56,7 +57,9 @@ public class ExperimentLogManager : MonoBehaviour
     {
         _sm = sm;
 
-        _basePath = BASE_DIRECTORY_PATH + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"); 
+        string sessionTimestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+        _conditionsSuffix = $"_{EXPERIMENT_LABEL}_P{_sm.ParticipantNum}_{_sm.MethodLabel}";
+        _basePath = BASE_DIRECTORY_PATH + sessionTimestamp + _conditionsSuffix;
        
         //ResolveRightPuppetReferences();
 
@@ -171,6 +174,7 @@ public class ExperimentLogManager : MonoBehaviour
         //}
         //else
         //{
+        _eventLog.Col("Block Num", () => _sm.BlockNum);
         _eventLog.Col("Trial Num", () => _sm.TrialNum);
         //}
 
@@ -197,6 +201,7 @@ public class ExperimentLogManager : MonoBehaviour
         //}
         //else
         //{
+        _summaryLog.Col("Block Num", () => _sm.BlockNum);
         _summaryLog.Col("Trial Num", () => _sm.TrialNum);
         //}
         //_summaryLog.Col("Current Angle", () => _sm.CurrentAngle);
@@ -237,14 +242,11 @@ public class ExperimentLogManager : MonoBehaviour
         _eventName = eventName;
         //_eventHandIndex = handIndex == -1 ? GetInteractingHandIndex() : handIndex;
         _eventLog.WriteRow();
-        _conditionsSuffix = "HPTK";
         if (eventName == "Trial Load")
         {
             _streamLog.Close();
-            //string suffix = (_sm.Experiment == ExperimentSceneManager.ExpType.Optimization_Exp1)
-              //  ? $"_Set{_sm.SetNum}_Angle{_sm.CurrentAngle}_Axis{_sm.AxisIndex}"
-                //: $"_Trial{_sm.TrialNum}";
-            string streamPath = BASE_DIRECTORY_PATH + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + _conditionsSuffix; // + suffix;
+            string suffix = $"_Block{_sm.BlockNum}_Trial{_sm.TrialNum}";
+            string streamPath = BASE_DIRECTORY_PATH + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + _conditionsSuffix + suffix;
             _streamLog.Open(streamPath + "_StreamData.csv");
         }
         else if (eventName == "Trial Start")

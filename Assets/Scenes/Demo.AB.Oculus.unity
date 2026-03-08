@@ -1510,7 +1510,9 @@ MonoBehaviour:
   _participantNum: 1
   _isLeftHanded: 1
   _isPracticeMode: 0
-  _maxTrialNum: 10
+  _methodType: 1
+  _maxTrialPerBlock: 2
+  _maxBlockNum: 3
   _diePrefab: {fileID: 2494809711538453874, guid: d409e216c9b7b664d816f24c30b04d5c, type: 3}
   _targetPrefab: {fileID: 1618645656371774453, guid: 86a01932818dd4045bc2e13c8229874a, type: 3}
   _centerEyeAnchor: {fileID: 376838488}
@@ -1519,6 +1521,7 @@ MonoBehaviour:
   _audioSource: {fileID: 617249497}
   _successSound: {fileID: 8300000, guid: d4c3abfa3656ce040bf78a2c73c714e5, type: 3}
   _timeoutSound: {fileID: 8300000, guid: 994a7db2db7eb724ab64a2a449e85829, type: 3}
+  _blockEndSound: {fileID: 8300000, guid: 0c370f5bad67f4142bca9c562ae5015e, type: 3}
   _wristWorld:
     position: {x: 0, y: 0, z: 0}
     rotation: {x: 0, y: 0, z: 0, w: 0}
